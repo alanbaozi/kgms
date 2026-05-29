@@ -1,0 +1,226 @@
+entity_types_guidance: |
+  你正在处理军事、国防、安全、作战、装备、情报、训练、保障和态势类资料。
+
+  只允许使用以下英文内部实体类型。不要输出中文类型名，不要创造新的实体类型；无法匹配但有检索价值时使用 other。
+
+  - country: 主权国家、准国家政治实体或国家行为体，例如中国、美国、伊朗、俄罗斯、俄国。即使文本中作为地点出现，也优先归为 country。
+  - force_unit: 军种、战区、舰队、基地部队、航空兵旅、合成旅、编队、分队、任务编组、指挥所、火力单元等军事力量或作战组织。
+  - organization: 非部队组织，例如政府部门、军工企业、研究所、国际组织、媒体、智库、承包商、造船厂、航空工业集团。
+  - person: 指挥员、官员、设计师、总师、专家、发言人、作者、观察员等人员。
+  - equipment: 武器、平台、系统、传感器、弹药、无人系统、软件系统、舰艇、飞机、车辆、雷达、导弹、火炮、发动机、声纳等装备或装备类别。
+  - facility: 军港、机场、空军基地、海军基地、仓库、雷达站、阵地、训练场、船厂、指挥设施、发射阵地等固定设施。
+  - location: 国家以下或非政治实体的具体地理位置，例如城市、港口、机场所在城市、海域、空域、岛礁、坐标点、航道、海峡、通道。
+  - region: 跨国家或大范围区域，例如中东、欧洲、印太、西太平洋、南海、东海方向、作战区域、战区方向。
+  - event: 具有时间、地点、参与方、结果、公开记录或明确上下文的发生事项，例如演习、冲突、战斗、部署、巡逻、试验、事故、公告、服役仪式、编队空中加油训练。
+  - action: 事件中或任务中由明确主体执行的具体动作，例如加油、受油、侦察、机动、打击、拦截、部署、保障、巡航、发射、伴飞、转移、撤离。
+  - capability: 能力、作战用途或功能，例如制空、反潜、远程打击、电子战、空中加油、预警探测、突防、隐身、续航、指挥控制。
+  - indicator: 可作为属性值检索的指标或状态，例如载弹量、最大航速、巡航速度、实用升限、最高飞行高度、航程、作战半径、射程、探测距离、排水量、舷号、数量、战损、风险等级。
+  - resource: 兵力、弹药、燃料、补给、经费、频谱、情报资料、后勤资源、备件等资源。
+  - time: 明确时间、日期、年份、阶段、窗口期、持续时间，例如设计时间、首飞时间、服役时间、事件发生时间。
+  - plan: 作战计划、任务方案、演训方案、应急预案、行动阶段、部署计划、条令方案。
+  - document: 报告、命令、通报、条令、新闻稿、网页、表格、图像、地图、附件等资料来源。
+  - other: 无法归入上述类别但对检索有价值的概念或对象。
+
+  国家、地区、地点、设施边界：
+  - 伊朗、俄国、俄罗斯、美国、中国等国家必须归为 country，不要归为 location。
+  - 中东、印太、南海、西太平洋、东海方向等大范围区域归为 region。
+  - 霍尔木兹海峡、某海域、某空域、某岛礁、某坐标点归为 location。
+  - 赫梅米姆空军基地、阿巴斯港海军基地、某雷达站、某船厂归为 facility。
+
+  装备属性抽取规则：
+  - 装备平台本体归为 equipment，例如歼-16、F-16、09III型核潜艇、鹰击-18导弹、运油-20加油机。
+  - 装备类别也可归为 equipment，例如战斗机、加油机、核潜艇、反舰导弹、相控阵雷达。
+  - 载弹量、最大航速、巡航速度、实用升限、最高飞行高度、航程、作战半径、射程、探测距离、排水量、最大起飞重量等属性值归为 indicator。
+  - 设计时间、首飞时间、服役时间、退役时间归为 time。
+  - 设计师、总设计师归为 person；设计单位、制造单位、服役部队归为 organization 或 force_unit。
+  - 不要只把重要属性写进 description；应尽量用关系把 equipment 连接到 indicator、time、person、organization、force_unit、capability。
+
+  事件和动作抽取规则：
+  - event 是发生事项的容器，通常连接时间、地点、参与方、参与装备、结果和来源。
+  - action 是 event 内部或任务中的具体动作，必须能连接到执行主体、动作对象、使用装备、地点、时间或所属事件。
+  - 静态事实不要默认抽成 action 或 event，例如“服役于”“可搭载”“具备能力”“由某单位设计”。这些优先用关系表达。
+  - 只有出现明确发生语境时才抽 event，例如“某日举行演习”“完成试验”“发生事故”“组织编队空中加油训练”。
+  - action 名称应包含主体和对象，例如“运油-20加油机为歼-16实施空中加油”“歼-16编队执行远海巡航”。
+  - 不要把低价值表达抽成 action，例如“显示”“指出”“包括”“认为”“提到”“报道”“称为”。
+
+  关系 keywords 使用短语，优先从以下军事语义中选择；多个 keywords 用逗号分隔：
+  所属国家、隶属、服役于、部署于、驻扎于、位于、活动区域、涉及区域、
+  装备分类、型号衍生、设计时间、首飞时间、服役时间、退役时间、设计单位、制造单位、总设计师、
+  最大航速、巡航速度、实用升限、最高飞行高度、航程、作战半径、载弹量、最大起飞重量、排水量、射程、探测距离、舷号、数量指标、
+  搭载武器、搭载系统、雷达型号、发动机型号、具备能力、能力增强、能力限制、
+  发生时间、发生于、参与方、参与装备、组织方、执行主体、动作对象、使用装备、作用目标、属于事件、动作结果、
+  指挥、组织、执行、使用、搭载、建造、下水、支援、保障、加油、受油、侦察、监视、巡逻、训练、打击、拦截、发射、协同、撤离、来源、引用。
+
+entity_extraction_examples:
+  - |
+    <Entity_types>
+    ["country","force_unit","organization","person","equipment","facility","location","region","event","action","capability","indicator","resource","time","plan","document","other"]
+
+    <Input Text>
+    ```
+    猎鹰-3型战斗机由北方航空工业集团在2012年开始设计，总设计师为李明。该机属于双发多用途战斗机，最大航速2.1马赫，实用升限18000米，最大载弹量8吨，作战半径1500公里，服役于第8航空旅，并可挂载霹雳-15空空导弹。
+    ```
+
+    <Output>
+    entity{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}equipment{tuple_delimiter}猎鹰-3型战斗机是由北方航空工业集团设计的双发多用途战斗机。
+    entity{tuple_delimiter}战斗机{tuple_delimiter}equipment{tuple_delimiter}战斗机是猎鹰-3型战斗机所属的装备类别。
+    entity{tuple_delimiter}北方航空工业集团{tuple_delimiter}organization{tuple_delimiter}北方航空工业集团是猎鹰-3型战斗机的设计单位。
+    entity{tuple_delimiter}2012年{tuple_delimiter}time{tuple_delimiter}2012年是猎鹰-3型战斗机开始设计的时间。
+    entity{tuple_delimiter}李明{tuple_delimiter}person{tuple_delimiter}李明是猎鹰-3型战斗机的总设计师。
+    entity{tuple_delimiter}2.1马赫{tuple_delimiter}indicator{tuple_delimiter}2.1马赫是猎鹰-3型战斗机的最大航速。
+    entity{tuple_delimiter}18000米{tuple_delimiter}indicator{tuple_delimiter}18000米是猎鹰-3型战斗机的实用升限。
+    entity{tuple_delimiter}8吨{tuple_delimiter}indicator{tuple_delimiter}8吨是猎鹰-3型战斗机的最大载弹量。
+    entity{tuple_delimiter}1500公里{tuple_delimiter}indicator{tuple_delimiter}1500公里是猎鹰-3型战斗机的作战半径。
+    entity{tuple_delimiter}第8航空旅{tuple_delimiter}force_unit{tuple_delimiter}第8航空旅是猎鹰-3型战斗机服役的航空兵部队。
+    entity{tuple_delimiter}霹雳-15空空导弹{tuple_delimiter}equipment{tuple_delimiter}霹雳-15空空导弹是猎鹰-3型战斗机可挂载的武器。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}战斗机{tuple_delimiter}装备分类{tuple_delimiter}猎鹰-3型战斗机属于双发多用途战斗机。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}北方航空工业集团{tuple_delimiter}设计单位{tuple_delimiter}北方航空工业集团负责猎鹰-3型战斗机的设计。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}2012年{tuple_delimiter}设计时间{tuple_delimiter}猎鹰-3型战斗机在2012年开始设计。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}李明{tuple_delimiter}总设计师{tuple_delimiter}李明是猎鹰-3型战斗机的总设计师。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}2.1马赫{tuple_delimiter}最大航速{tuple_delimiter}猎鹰-3型战斗机最大航速为2.1马赫。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}18000米{tuple_delimiter}实用升限{tuple_delimiter}猎鹰-3型战斗机实用升限为18000米。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}8吨{tuple_delimiter}载弹量{tuple_delimiter}猎鹰-3型战斗机最大载弹量为8吨。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}1500公里{tuple_delimiter}作战半径{tuple_delimiter}猎鹰-3型战斗机作战半径为1500公里。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}第8航空旅{tuple_delimiter}服役于{tuple_delimiter}猎鹰-3型战斗机服役于第8航空旅。
+    relation{tuple_delimiter}猎鹰-3型战斗机{tuple_delimiter}霹雳-15空空导弹{tuple_delimiter}搭载武器{tuple_delimiter}猎鹰-3型战斗机可挂载霹雳-15空空导弹。
+    {completion_delimiter}
+
+  - |
+    <Entity_types>
+    ["country","force_unit","organization","person","equipment","facility","location","region","event","action","capability","indicator","resource","time","plan","document","other"]
+
+    <Input Text>
+    ```
+    2025年6月2日，东海方向远海训练中，第3航空兵编队在东部海域组织编队空中加油。运油-20加油机为两架歼-16实施空中加油，歼-16编队随后继续执行远海巡航。
+    ```
+
+    <Output>
+    entity{tuple_delimiter}2025年6月2日东海方向编队空中加油训练{tuple_delimiter}event{tuple_delimiter}2025年6月2日在东海方向远海训练中组织的编队空中加油训练。
+    entity{tuple_delimiter}2025年6月2日{tuple_delimiter}time{tuple_delimiter}2025年6月2日是东海方向编队空中加油训练发生的日期。
+    entity{tuple_delimiter}东海方向{tuple_delimiter}region{tuple_delimiter}东海方向是远海训练和编队空中加油训练涉及的大范围区域。
+    entity{tuple_delimiter}东部海域{tuple_delimiter}location{tuple_delimiter}东部海域是编队空中加油训练发生的海域。
+    entity{tuple_delimiter}第3航空兵编队{tuple_delimiter}force_unit{tuple_delimiter}第3航空兵编队是组织并参与编队空中加油训练的航空兵编队。
+    entity{tuple_delimiter}运油-20加油机{tuple_delimiter}equipment{tuple_delimiter}运油-20加油机是在训练中为空中编队提供加油的装备。
+    entity{tuple_delimiter}歼-16{tuple_delimiter}equipment{tuple_delimiter}歼-16是在训练中接受空中加油并继续远海巡航的战斗机。
+    entity{tuple_delimiter}运油-20加油机为歼-16实施空中加油{tuple_delimiter}action{tuple_delimiter}运油-20加油机为两架歼-16实施空中加油的具体动作。
+    entity{tuple_delimiter}歼-16编队执行远海巡航{tuple_delimiter}action{tuple_delimiter}歼-16编队在空中加油后继续执行远海巡航的动作。
+    entity{tuple_delimiter}空中加油{tuple_delimiter}capability{tuple_delimiter}空中加油是训练中体现的航空保障能力。
+    relation{tuple_delimiter}2025年6月2日东海方向编队空中加油训练{tuple_delimiter}2025年6月2日{tuple_delimiter}发生时间{tuple_delimiter}编队空中加油训练发生于2025年6月2日。
+    relation{tuple_delimiter}2025年6月2日东海方向编队空中加油训练{tuple_delimiter}东海方向{tuple_delimiter}涉及区域{tuple_delimiter}编队空中加油训练涉及东海方向。
+    relation{tuple_delimiter}2025年6月2日东海方向编队空中加油训练{tuple_delimiter}东部海域{tuple_delimiter}发生于{tuple_delimiter}编队空中加油训练发生在东部海域。
+    relation{tuple_delimiter}第3航空兵编队{tuple_delimiter}2025年6月2日东海方向编队空中加油训练{tuple_delimiter}组织方,参与方{tuple_delimiter}第3航空兵编队组织并参与编队空中加油训练。
+    relation{tuple_delimiter}2025年6月2日东海方向编队空中加油训练{tuple_delimiter}运油-20加油机{tuple_delimiter}参与装备{tuple_delimiter}运油-20加油机参与编队空中加油训练。
+    relation{tuple_delimiter}2025年6月2日东海方向编队空中加油训练{tuple_delimiter}歼-16{tuple_delimiter}参与装备{tuple_delimiter}歼-16参与编队空中加油训练。
+    relation{tuple_delimiter}运油-20加油机{tuple_delimiter}运油-20加油机为歼-16实施空中加油{tuple_delimiter}执行主体{tuple_delimiter}运油-20加油机执行为空中编队加油的动作。
+    relation{tuple_delimiter}运油-20加油机为歼-16实施空中加油{tuple_delimiter}歼-16{tuple_delimiter}动作对象{tuple_delimiter}歼-16是运油-20加油机实施空中加油的对象。
+    relation{tuple_delimiter}运油-20加油机为歼-16实施空中加油{tuple_delimiter}2025年6月2日东海方向编队空中加油训练{tuple_delimiter}属于事件{tuple_delimiter}运油-20加油机为空中编队加油属于该编队空中加油训练。
+    relation{tuple_delimiter}运油-20加油机为歼-16实施空中加油{tuple_delimiter}空中加油{tuple_delimiter}使用能力{tuple_delimiter}运油-20加油机为歼-16实施空中加油体现空中加油能力。
+    relation{tuple_delimiter}歼-16{tuple_delimiter}歼-16编队执行远海巡航{tuple_delimiter}执行主体{tuple_delimiter}歼-16编队执行远海巡航动作。
+    relation{tuple_delimiter}歼-16编队执行远海巡航{tuple_delimiter}2025年6月2日东海方向编队空中加油训练{tuple_delimiter}属于事件{tuple_delimiter}歼-16编队执行远海巡航属于该训练过程。
+    {completion_delimiter}
+
+  - |
+    <Entity_types>
+    ["country","force_unit","organization","person","equipment","facility","location","region","event","action","capability","indicator","resource","time","plan","document","other"]
+
+    <Input Text>
+    ```
+    伊朗在霍尔木兹海峡附近举行海上演习，俄国派观察员到阿巴斯港海军基地观摩。演习被外媒称为中东安全局势的重要信号。
+    ```
+
+    <Output>
+    entity{tuple_delimiter}伊朗{tuple_delimiter}country{tuple_delimiter}伊朗是组织海上演习的国家行为体。
+    entity{tuple_delimiter}俄国{tuple_delimiter}country{tuple_delimiter}俄国是派观察员观摩海上演习的国家行为体。
+    entity{tuple_delimiter}霍尔木兹海峡{tuple_delimiter}location{tuple_delimiter}霍尔木兹海峡是海上演习附近的具体地理位置。
+    entity{tuple_delimiter}阿巴斯港海军基地{tuple_delimiter}facility{tuple_delimiter}阿巴斯港海军基地是俄国观察员到访观摩的海军基地。
+    entity{tuple_delimiter}中东{tuple_delimiter}region{tuple_delimiter}中东是海上演习涉及的区域安全语境。
+    entity{tuple_delimiter}霍尔木兹海峡附近海上演习{tuple_delimiter}event{tuple_delimiter}伊朗在霍尔木兹海峡附近举行的海上演习。
+    entity{tuple_delimiter}俄国观察员观摩海上演习{tuple_delimiter}action{tuple_delimiter}俄国派观察员到阿巴斯港海军基地观摩海上演习的动作。
+    relation{tuple_delimiter}伊朗{tuple_delimiter}霍尔木兹海峡附近海上演习{tuple_delimiter}组织方{tuple_delimiter}伊朗组织霍尔木兹海峡附近海上演习。
+    relation{tuple_delimiter}霍尔木兹海峡附近海上演习{tuple_delimiter}霍尔木兹海峡{tuple_delimiter}发生于{tuple_delimiter}海上演习发生在霍尔木兹海峡附近。
+    relation{tuple_delimiter}俄国{tuple_delimiter}俄国观察员观摩海上演习{tuple_delimiter}执行主体{tuple_delimiter}俄国派观察员观摩海上演习。
+    relation{tuple_delimiter}俄国观察员观摩海上演习{tuple_delimiter}霍尔木兹海峡附近海上演习{tuple_delimiter}动作对象,属于事件{tuple_delimiter}俄国观察员观摩的对象是霍尔木兹海峡附近海上演习。
+    relation{tuple_delimiter}俄国观察员观摩海上演习{tuple_delimiter}阿巴斯港海军基地{tuple_delimiter}发生于{tuple_delimiter}俄国观察员到阿巴斯港海军基地观摩演习。
+    relation{tuple_delimiter}霍尔木兹海峡附近海上演习{tuple_delimiter}中东{tuple_delimiter}涉及区域{tuple_delimiter}该演习被描述为中东安全局势的重要信号。
+    {completion_delimiter}
+
+entity_extraction_json_examples:
+  - |
+    {
+      "entities": [
+        {"name": "猎鹰-3型战斗机", "type": "equipment", "description": "猎鹰-3型战斗机是由北方航空工业集团设计的双发多用途战斗机。"},
+        {"name": "战斗机", "type": "equipment", "description": "战斗机是猎鹰-3型战斗机所属的装备类别。"},
+        {"name": "北方航空工业集团", "type": "organization", "description": "北方航空工业集团是猎鹰-3型战斗机的设计单位。"},
+        {"name": "2012年", "type": "time", "description": "2012年是猎鹰-3型战斗机开始设计的时间。"},
+        {"name": "李明", "type": "person", "description": "李明是猎鹰-3型战斗机的总设计师。"},
+        {"name": "2.1马赫", "type": "indicator", "description": "2.1马赫是猎鹰-3型战斗机的最大航速。"},
+        {"name": "18000米", "type": "indicator", "description": "18000米是猎鹰-3型战斗机的实用升限。"},
+        {"name": "8吨", "type": "indicator", "description": "8吨是猎鹰-3型战斗机的最大载弹量。"},
+        {"name": "1500公里", "type": "indicator", "description": "1500公里是猎鹰-3型战斗机的作战半径。"},
+        {"name": "第8航空旅", "type": "force_unit", "description": "第8航空旅是猎鹰-3型战斗机服役的航空兵部队。"},
+        {"name": "霹雳-15空空导弹", "type": "equipment", "description": "霹雳-15空空导弹是猎鹰-3型战斗机可挂载的武器。"}
+      ],
+      "relationships": [
+        {"source": "猎鹰-3型战斗机", "target": "战斗机", "keywords": "装备分类", "description": "猎鹰-3型战斗机属于双发多用途战斗机。"},
+        {"source": "猎鹰-3型战斗机", "target": "北方航空工业集团", "keywords": "设计单位", "description": "北方航空工业集团负责猎鹰-3型战斗机的设计。"},
+        {"source": "猎鹰-3型战斗机", "target": "2012年", "keywords": "设计时间", "description": "猎鹰-3型战斗机在2012年开始设计。"},
+        {"source": "猎鹰-3型战斗机", "target": "李明", "keywords": "总设计师", "description": "李明是猎鹰-3型战斗机的总设计师。"},
+        {"source": "猎鹰-3型战斗机", "target": "2.1马赫", "keywords": "最大航速", "description": "猎鹰-3型战斗机最大航速为2.1马赫。"},
+        {"source": "猎鹰-3型战斗机", "target": "18000米", "keywords": "实用升限", "description": "猎鹰-3型战斗机实用升限为18000米。"},
+        {"source": "猎鹰-3型战斗机", "target": "8吨", "keywords": "载弹量", "description": "猎鹰-3型战斗机最大载弹量为8吨。"},
+        {"source": "猎鹰-3型战斗机", "target": "1500公里", "keywords": "作战半径", "description": "猎鹰-3型战斗机作战半径为1500公里。"},
+        {"source": "猎鹰-3型战斗机", "target": "第8航空旅", "keywords": "服役于", "description": "猎鹰-3型战斗机服役于第8航空旅。"},
+        {"source": "猎鹰-3型战斗机", "target": "霹雳-15空空导弹", "keywords": "搭载武器", "description": "猎鹰-3型战斗机可挂载霹雳-15空空导弹。"}
+      ]
+    }
+
+  - |
+    {
+      "entities": [
+        {"name": "2025年6月2日东海方向编队空中加油训练", "type": "event", "description": "2025年6月2日在东海方向远海训练中组织的编队空中加油训练。"},
+        {"name": "2025年6月2日", "type": "time", "description": "2025年6月2日是东海方向编队空中加油训练发生的日期。"},
+        {"name": "东海方向", "type": "region", "description": "东海方向是远海训练和编队空中加油训练涉及的大范围区域。"},
+        {"name": "东部海域", "type": "location", "description": "东部海域是编队空中加油训练发生的海域。"},
+        {"name": "第3航空兵编队", "type": "force_unit", "description": "第3航空兵编队是组织并参与编队空中加油训练的航空兵编队。"},
+        {"name": "运油-20加油机", "type": "equipment", "description": "运油-20加油机是在训练中为空中编队提供加油的装备。"},
+        {"name": "歼-16", "type": "equipment", "description": "歼-16是在训练中接受空中加油并继续远海巡航的战斗机。"},
+        {"name": "运油-20加油机为歼-16实施空中加油", "type": "action", "description": "运油-20加油机为两架歼-16实施空中加油的具体动作。"},
+        {"name": "歼-16编队执行远海巡航", "type": "action", "description": "歼-16编队在空中加油后继续执行远海巡航的动作。"},
+        {"name": "空中加油", "type": "capability", "description": "空中加油是训练中体现的航空保障能力。"}
+      ],
+      "relationships": [
+        {"source": "2025年6月2日东海方向编队空中加油训练", "target": "2025年6月2日", "keywords": "发生时间", "description": "编队空中加油训练发生于2025年6月2日。"},
+        {"source": "2025年6月2日东海方向编队空中加油训练", "target": "东海方向", "keywords": "涉及区域", "description": "编队空中加油训练涉及东海方向。"},
+        {"source": "2025年6月2日东海方向编队空中加油训练", "target": "东部海域", "keywords": "发生于", "description": "编队空中加油训练发生在东部海域。"},
+        {"source": "第3航空兵编队", "target": "2025年6月2日东海方向编队空中加油训练", "keywords": "组织方,参与方", "description": "第3航空兵编队组织并参与编队空中加油训练。"},
+        {"source": "2025年6月2日东海方向编队空中加油训练", "target": "运油-20加油机", "keywords": "参与装备", "description": "运油-20加油机参与编队空中加油训练。"},
+        {"source": "2025年6月2日东海方向编队空中加油训练", "target": "歼-16", "keywords": "参与装备", "description": "歼-16参与编队空中加油训练。"},
+        {"source": "运油-20加油机", "target": "运油-20加油机为歼-16实施空中加油", "keywords": "执行主体", "description": "运油-20加油机执行为空中编队加油的动作。"},
+        {"source": "运油-20加油机为歼-16实施空中加油", "target": "歼-16", "keywords": "动作对象", "description": "歼-16是运油-20加油机实施空中加油的对象。"},
+        {"source": "运油-20加油机为歼-16实施空中加油", "target": "2025年6月2日东海方向编队空中加油训练", "keywords": "属于事件", "description": "运油-20加油机为空中编队加油属于该编队空中加油训练。"},
+        {"source": "运油-20加油机为歼-16实施空中加油", "target": "空中加油", "keywords": "使用能力", "description": "运油-20加油机为歼-16实施空中加油体现空中加油能力。"},
+        {"source": "歼-16", "target": "歼-16编队执行远海巡航", "keywords": "执行主体", "description": "歼-16编队执行远海巡航动作。"},
+        {"source": "歼-16编队执行远海巡航", "target": "2025年6月2日东海方向编队空中加油训练", "keywords": "属于事件", "description": "歼-16编队执行远海巡航属于该训练过程。"}
+      ]
+    }
+
+  - |
+    {
+      "entities": [
+        {"name": "伊朗", "type": "country", "description": "伊朗是组织海上演习的国家行为体。"},
+        {"name": "俄国", "type": "country", "description": "俄国是派观察员观摩海上演习的国家行为体。"},
+        {"name": "霍尔木兹海峡", "type": "location", "description": "霍尔木兹海峡是海上演习附近的具体地理位置。"},
+        {"name": "阿巴斯港海军基地", "type": "facility", "description": "阿巴斯港海军基地是俄国观察员到访观摩的海军基地。"},
+        {"name": "中东", "type": "region", "description": "中东是海上演习涉及的区域安全语境。"},
+        {"name": "霍尔木兹海峡附近海上演习", "type": "event", "description": "伊朗在霍尔木兹海峡附近举行的海上演习。"},
+        {"name": "俄国观察员观摩海上演习", "type": "action", "description": "俄国派观察员到阿巴斯港海军基地观摩海上演习的动作。"}
+      ],
+      "relationships": [
+        {"source": "伊朗", "target": "霍尔木兹海峡附近海上演习", "keywords": "组织方", "description": "伊朗组织霍尔木兹海峡附近海上演习。"},
+        {"source": "霍尔木兹海峡附近海上演习", "target": "霍尔木兹海峡", "keywords": "发生于", "description": "海上演习发生在霍尔木兹海峡附近。"},
+        {"source": "俄国", "target": "俄国观察员观摩海上演习", "keywords": "执行主体", "description": "俄国派观察员观摩海上演习。"},
+        {"source": "俄国观察员观摩海上演习", "target": "霍尔木兹海峡附近海上演习", "keywords": "动作对象,属于事件", "description": "俄国观察员观摩的对象是霍尔木兹海峡附近海上演习。"},
+        {"source": "俄国观察员观摩海上演习", "target": "阿巴斯港海军基地", "keywords": "发生于", "description": "俄国观察员到阿巴斯港海军基地观摩演习。"},
+        {"source": "霍尔木兹海峡附近海上演习", "target": "中东", "keywords": "涉及区域", "description": "该演习被描述为中东安全局势的重要信号。"}
+      ]
+    }

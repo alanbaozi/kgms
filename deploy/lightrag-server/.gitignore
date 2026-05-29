@@ -1,0 +1,7 @@
+.env
+kgms.env
+kgms-data/
+data/
+lightrag-src/
+*.log
+*.tmp

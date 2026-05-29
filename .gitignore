@@ -4,9 +4,22 @@
 !.env.example
 
 .superpowers/
+docs/deployment/
+kgms-offline-bundle/
+
+# Local/private planning notes. Keep public docs outside this tree.
+docs/superpowers/plans/
+
 .venv/
+**/.venv/
 __pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+*.egg-info/
+**/*.egg-info/
 *.py[cod]
+*.tsbuildinfo
 
 node_modules/
 dist/
@@ -14,3 +27,12 @@ build/
 
 data/
 logs/
+
+*.db
+*.sqlite
+*.sqlite3
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.docx

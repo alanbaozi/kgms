@@ -1,0 +1,53 @@
+services:
+  kgms-backend:
+    build:
+      context: ./kgms-src
+      dockerfile: kgms-backend/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}
+    image: kgms/backend:latest
+    container_name: kgms-backend
+    restart: unless-stopped
+    env_file:
+      - kgms.env
+    environment:
+      KGMS_ENV_PATH: /app/config/kgms.env
+      KGMS_MANAGED_LIGHTRAG_ROOT: /managed/lightrag-server
+      KGMS_LIGHTRAG_RESTART_STRATEGY: docker_socket
+      KGMS_LIGHTRAG_CONTAINER_NAME: kgms-lightrag
+      KGMS_DOCKER_SOCKET_PATH: /var/run/docker.sock
+    volumes:
+      - ./kgms.env:/app/config/kgms.env
+      - ./kgms-data:/app/data
+      - ./.env:/managed/lightrag-server/.env
+      - ./prompts:/managed/lightrag-server/prompts
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://127.0.0.1:8000/', timeout=5).read()\nPY"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  kgms-frontend:
+    build:
+      context: ./kgms-src
+      dockerfile: kgms-frontend/Dockerfile
+      args:
+        VITE_KGMS_API_BASE_URL: /
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    image: kgms/frontend:latest
+    container_name: kgms-frontend
+    restart: unless-stopped
+    ports:
+      - "${KGMS_WEB_HOST:-0.0.0.0}:${KGMS_WEB_PORT:-8080}:80"
+    depends_on:
+      kgms-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 10s

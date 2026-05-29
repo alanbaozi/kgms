@@ -1,0 +1,234 @@
+services:
+  lightrag:
+    build:
+      context: ./lightrag-src
+      dockerfile: Dockerfile
+    image: kgms/lightrag:v1.5.0rc2-source
+    container_name: kgms-lightrag
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${HOST:-0.0.0.0}:${PORT:-9621}:9621"
+    volumes:
+      - ./data/rag_storage:/app/data/rag_storage
+      - ./data/inputs:/app/data/inputs
+      - ./data/tiktoken:/app/data/tiktoken
+      - ./prompts:/app/data/prompts:ro
+      - ./.env:/app/.env:ro
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "9621"
+      WORKING_DIR: "/app/data/rag_storage"
+      INPUT_DIR: "/app/data/inputs"
+      PROMPT_DIR: "/app/data/prompts"
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: "5432"
+      REDIS_URI: "redis://redis:6379"
+      NEO4J_URI: "neo4j://neo4j:7687"
+      MILVUS_URI: "http://milvus:19530"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://127.0.0.1:9621/health', timeout=5).read()\nPY"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  kgms-backend:
+    build:
+      context: ../..
+      dockerfile: kgms-backend/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}
+    image: kgms/backend:latest
+    container_name: kgms-backend
+    restart: unless-stopped
+    env_file:
+      - kgms.env
+    environment:
+      KGMS_ENV_PATH: /app/config/kgms.env
+      KGMS_MANAGED_LIGHTRAG_ROOT: /managed/lightrag-server
+      KGMS_LIGHTRAG_RESTART_STRATEGY: docker_socket
+      KGMS_LIGHTRAG_CONTAINER_NAME: kgms-lightrag
+      KGMS_DOCKER_SOCKET_PATH: /var/run/docker.sock
+    volumes:
+      - ./kgms.env:/app/config/kgms.env
+      - ./kgms-data:/app/data
+      - ./.env:/managed/lightrag-server/.env
+      - ./prompts:/managed/lightrag-server/prompts
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      lightrag:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://127.0.0.1:8000/', timeout=5).read()\nPY"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  kgms-frontend:
+    build:
+      context: ../..
+      dockerfile: kgms-frontend/Dockerfile
+      args:
+        VITE_KGMS_API_BASE_URL: /
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    image: kgms/frontend:latest
+    container_name: kgms-frontend
+    restart: unless-stopped
+    ports:
+      - "${KGMS_WEB_HOST:-0.0.0.0}:${KGMS_WEB_PORT:-8080}:80"
+    depends_on:
+      kgms-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: kgms-lightrag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-rag}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_DB: "${POSTGRES_DATABASE:-rag}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag} -d ${POSTGRES_DATABASE:-rag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: kgms-lightrag-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: kgms-lightrag-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: "${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:?NEO4J_PASSWORD is required}"
+      NEO4J_dbms_default__database: "${NEO4J_DATABASE:-neo4j}"
+      NEO4J_server_memory_heap_initial__size: "512m"
+      NEO4J_server_memory_heap_max__size: "768m"
+      NEO4J_server_memory_pagecache_size: "256m"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u ${NEO4J_USERNAME:-neo4j} -p ${NEO4J_PASSWORD:?NEO4J_PASSWORD is required} 'RETURN 1' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 60s
+    ports:
+      - "${NEO4J_HTTP_HOST:-127.0.0.1}:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_HOST:-127.0.0.1}:${NEO4J_BOLT_PORT:-7687}:7687"
+
+  milvus:
+    image: milvusdb/milvus:v2.6.11
+    container_name: kgms-lightrag-milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: "milvus-etcd:2379"
+      MINIO_ADDRESS: "milvus-minio:9000"
+      MINIO_ACCESS_KEY_ID: "${MINIO_ACCESS_KEY_ID:?MINIO_ACCESS_KEY_ID is required}"
+      MINIO_SECRET_ACCESS_KEY: "${MINIO_SECRET_ACCESS_KEY:?MINIO_SECRET_ACCESS_KEY is required}"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    depends_on:
+      milvus-etcd:
+        condition: service_healthy
+      milvus-minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'PORT_HEX="$$(printf "%04X" 19530)"; cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | grep -q ":$${PORT_HEX} "'
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 60s
+    ports:
+      - "${MILVUS_GRPC_HOST:-127.0.0.1}:${MILVUS_GRPC_PORT:-19530}:19530"
+      - "${MILVUS_HTTP_HOST:-127.0.0.1}:${MILVUS_HTTP_PORT:-9091}:9091"
+
+  milvus-etcd:
+    image: quay.io/coreos/etcd:v3.5.25
+    container_name: kgms-lightrag-milvus-etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: "revision"
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command:
+      - etcd
+      - --advertise-client-urls=http://0.0.0.0:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd
+    volumes:
+      - milvus_etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  milvus-minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: kgms-lightrag-milvus-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ACCESS_KEY_ID:?MINIO_ACCESS_KEY_ID is required}"
+      MINIO_ROOT_PASSWORD: "${MINIO_SECRET_ACCESS_KEY:?MINIO_SECRET_ACCESS_KEY is required}"
+    command: ["minio", "server", "/minio_data", "--console-address", ":9001"]
+    volumes:
+      - milvus_minio_data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  postgres_data:
+  redis_data:
+  neo4j_data:
+  neo4j_logs:
+  milvus_data:
+  milvus_etcd_data:
+  milvus_minio_data:

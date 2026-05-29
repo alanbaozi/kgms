@@ -1,9 +1,11 @@
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent } from 'echarts/components'
 import { init, use } from 'echarts/core'
+import type { ECharts } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { Maximize2, Tags } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 
 import { EmptyState } from './EmptyState'
 import { entityColor, entityLabel, graphLegend } from '../lib/entityColors'
@@ -29,6 +31,8 @@ const EDGE_LABEL_NODE_THRESHOLD = 80
 
 export function GraphPanel({ graph, onExpand }: GraphPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const chartRef = useRef<ECharts | null>(null)
+  const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
   const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(new Set())
   const [showRelationLabels, setShowRelationLabels] = useState(true)
   const neighborIdsByNode = useMemo(() => buildNeighborIdsByNode(graph), [graph])
@@ -49,85 +53,16 @@ export function GraphPanel({ graph, onExpand }: GraphPanelProps) {
 
   useEffect(() => {
     setCollapsedNodeIds(new Set())
+    nodePositionsRef.current = new Map()
   }, [graph])
 
-  useEffect(() => {
-    if (!containerRef.current || !visibleGraph?.nodes.length) {
-      return
-    }
-
-    const chart = init(containerRef.current)
-    chart.setOption({
-      animation: false,
-      animationDuration: 0,
-      tooltip: {
-        appendTo: () => document.body,
-        appendToBody: true,
-        className: 'kgms-graph-tooltip',
-        confine: false,
-        enterable: true,
-        extraCssText:
-          'max-width:520px;max-height:min(440px,calc(100vh - 32px));overflow:auto;white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.6;z-index:9999;',
-        formatter: formatGraphTooltip,
-        position: positionGraphTooltip,
-        renderMode: 'html',
-      },
-      series: [
-        {
-          type: 'graph',
-          layout: 'force',
-          layoutAnimation: false,
-          roam: true,
-          draggable: true,
-          progressive: 200,
-          progressiveThreshold: 300,
-          label: {
-            show: visibleGraph.nodes.length <= 250,
-            fontSize: isLargeGraph ? 10 : 11,
-            color: '#1f2937',
-          },
-          edgeLabel: {
-            show: showEdgeLabels,
-            formatter: '{c}',
-            fontSize: 10,
-            color: '#64748b',
-          },
-          lineStyle: {
-            color: '#94a3b8',
-            opacity: 0.8,
-          },
-          force: {
-            repulsion: isLargeGraph ? 90 : 160,
-            edgeLength: isLargeGraph ? 58 : 85,
-            friction: 0.86,
-            gravity: 0.04,
-          },
-          data: visibleGraph.nodes.map((node) => ({
-            id: node.id,
-            name: node.label,
-            categoryLabel: node.display_name || entityLabel(node.entity_type),
-            properties: node.properties,
-            symbolSize: isLargeGraph ? 28 : 38,
-            itemStyle: {
-              color: node.color || entityColor(node.entity_type),
-            },
-          })),
-          links: visibleGraph.edges.map((edge) => ({
-            source: edge.source,
-            target: edge.target,
-            value: edge.label,
-            label: edge.label,
-            properties: edge.properties,
-          })),
-        },
-      ],
-    })
-
-    const toggleNeighborhood = (event: unknown) => {
+  const toggleNeighborhood = useCallback(
+    (event: unknown) => {
       const nodeId = nodeIdFromDoubleClickEvent(event)
       if (!nodeId || !neighborIdsByNode.get(nodeId)?.size) {
         return
       }
+      captureNodePositions(chartRef.current, nodePositionsRef)
       setCollapsedNodeIds((current) => {
         const next = new Set(current)
         if (next.has(nodeId)) {
@@ -137,7 +72,16 @@ export function GraphPanel({ graph, onExpand }: GraphPanelProps) {
         }
         return next
       })
-    }
+    },
+    [neighborIdsByNode],
+  )
+
+  // Effect 1: Create chart instance once, attach event handlers, dispose on unmount
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const chart = init(containerRef.current)
+    chartRef.current = chart
 
     chart.on('dblclick', toggleNeighborhood)
 
@@ -148,13 +92,111 @@ export function GraphPanel({ graph, onExpand }: GraphPanelProps) {
       resizeObserver = new ResizeObserver(resize)
       resizeObserver.observe(containerRef.current)
     }
+
     return () => {
       window.removeEventListener('resize', resize)
       resizeObserver?.disconnect()
       chart.off('dblclick', toggleNeighborhood)
       chart.dispose()
+      chartRef.current = null
     }
-  }, [isLargeGraph, neighborIdsByNode, showEdgeLabels, visibleGraph])
+  }, [toggleNeighborhood])
+
+  // Effect 2: Update chart options when data or display settings change
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart || !visibleGraph?.nodes.length) {
+      if (chart) {
+        chart.clear()
+      }
+      return
+    }
+
+    const nodeCount = visibleGraph.nodes.length
+    const savedPositions = nodePositionsRef.current
+    const edgeLength = computeEdgeLength(nodeCount, isLargeGraph)
+    const repulsion = computeRepulsion(nodeCount, isLargeGraph)
+
+    chart.setOption(
+      {
+        animation: true,
+        animationDuration: 0,
+        animationDurationUpdate: 400,
+        animationEasingUpdate: 'cubicOut',
+        tooltip: {
+          appendTo: () => document.body,
+          appendToBody: true,
+          className: 'kgms-graph-tooltip',
+          confine: false,
+          enterable: true,
+          extraCssText:
+            'max-width:520px;max-height:min(440px,calc(100vh - 32px));overflow:auto;white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.6;z-index:9999;',
+          formatter: formatGraphTooltip,
+          position: positionGraphTooltip,
+          renderMode: 'html',
+        },
+        series: [
+          {
+            type: 'graph',
+            layout: 'force',
+            roam: true,
+            draggable: true,
+            progressive: 200,
+            progressiveThreshold: 300,
+            label: {
+              show: nodeCount <= 250,
+              fontSize: isLargeGraph ? 10 : 11,
+              color: '#1f2937',
+            },
+            edgeLabel: {
+              show: showEdgeLabels,
+              formatter: '{c}',
+              fontSize: 10,
+              color: '#64748b',
+            },
+            lineStyle: {
+              color: '#94a3b8',
+              opacity: 0.8,
+            },
+            force: {
+              repulsion,
+              edgeLength,
+              friction: 0.6,
+              gravity: 0.03,
+              layoutAnimation: true,
+            },
+            data: visibleGraph.nodes.map((node) => {
+              const pos = savedPositions.get(node.id)
+              return {
+                id: node.id,
+                name: node.label,
+                categoryLabel: node.display_name || entityLabel(node.entity_type),
+                properties: node.properties,
+                symbolSize: isLargeGraph ? 28 : 38,
+                itemStyle: {
+                  color: node.color || entityColor(node.entity_type),
+                },
+                ...(pos ? { x: pos.x, y: pos.y } : {}),
+              }
+            }),
+            links: visibleGraph.edges.map((edge) => ({
+              source: edge.source,
+              target: edge.target,
+              value: edge.label,
+              label: edge.label,
+              properties: edge.properties,
+            })),
+          },
+        ],
+      },
+      { replaceMerge: ['series'] },
+    )
+
+    // Clear saved positions after applying — they've served as initial coords
+    if (savedPositions.size > 0) {
+      nodePositionsRef.current = new Map()
+    }
+  }, [isLargeGraph, showEdgeLabels, visibleGraph])
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -229,6 +271,46 @@ export function GraphPanel({ graph, onExpand }: GraphPanelProps) {
   )
 }
 
+function captureNodePositions(
+  chart: ECharts | null,
+  ref: MutableRefObject<Map<string, { x: number; y: number }>>,
+): void {
+  if (!chart) return
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const model = (chart as any).getModel?.()
+    const seriesModel = model?.getSeriesByIndex?.(0)
+    if (!seriesModel) return
+    const data = seriesModel.getData()
+    const count = data.count()
+    const positions = new Map<string, { x: number; y: number }>()
+    for (let i = 0; i < count; i++) {
+      const layout = data.getItemLayout(i)
+      const id = data.getId(i)
+      if (layout && id) {
+        positions.set(String(id), { x: layout[0], y: layout[1] })
+      }
+    }
+    ref.current = positions
+  } catch {
+    // Internal API may change across ECharts versions; fail silently
+  }
+}
+
+function computeEdgeLength(nodeCount: number, isLarge: boolean): number {
+  if (isLarge) return 100
+  // Longer edges spread connected subgraphs apart
+  // 20 nodes → 250, 50 nodes → 200, 100 nodes → 160
+  return Math.round(Math.max(150, Math.min(280, 4000 / Math.sqrt(nodeCount * 10))))
+}
+
+function computeRepulsion(nodeCount: number, isLarge: boolean): number {
+  if (isLarge) return 180
+  // High repulsion pushes nodes apart WITHIN connected subgraphs
+  // 20 nodes → 600, 50 nodes → 500, 100 nodes → 400
+  return Math.round(Math.max(350, Math.min(700, 10000 / Math.sqrt(nodeCount * 4))))
+}
+
 function buildNeighborIdsByNode(graph: GraphResponse | null): Map<string, Set<string>> {
   const result = new Map<string, Set<string>>()
   if (!graph) {
@@ -257,9 +339,22 @@ function filterCollapsedGraph(
   }
 
   const hiddenNodeIds = new Set<string>()
-  for (const nodeId of collapsedNodeIds) {
-    for (const neighborId of neighborIdsByNode.get(nodeId) || []) {
-      if (!collapsedNodeIds.has(neighborId)) {
+  for (const collapsedId of collapsedNodeIds) {
+    for (const neighborId of neighborIdsByNode.get(collapsedId) || []) {
+      if (collapsedNodeIds.has(neighborId)) {
+        continue
+      }
+      // Only hide this neighbor if ALL of its connections go to collapsed nodes
+      const neighborConnections = neighborIdsByNode.get(neighborId)
+      if (!neighborConnections) continue
+      let hasVisibleConnection = false
+      for (const connectedId of neighborConnections) {
+        if (!collapsedNodeIds.has(connectedId)) {
+          hasVisibleConnection = true
+          break
+        }
+      }
+      if (!hasVisibleConnection) {
         hiddenNodeIds.add(neighborId)
       }
     }

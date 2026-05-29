@@ -7,7 +7,7 @@
 构建一个知识图谱检索系统的 PoC，组合使用：
 
 - LightRAG：负责多模态文档解析、知识图谱抽取、图检索和 native 向量检索。
-- PageIndex：负责基于文档结构和内容的检索。
+- PageIndex：通过 PageIndex API 负责基于文档结构和内容的检索。
 - KGMS：作为编排层，提供自己的 API、元数据存储、PageIndex 任务、检索路由和前端。
 
 PoC 必须支持 PDF 和 Office 文档，并能处理文本、图片和表格。系统需要提供文档管理界面、检索界面、证据展示、PageIndex 命中片段展示，以及在有图谱数据时展示小图谱。
@@ -20,7 +20,7 @@ PoC 必须支持 PDF 和 Office 文档，并能处理文本、图片和表格。
 
 - FastAPI 后端、React 前端、Docker Compose 部署。
 - LightRAG 作为独立服务运行，KGMS 通过 REST API 调用。
-- PageIndex 由 KGMS 后端管理。
+- PageIndex 由 KGMS 后端通过 PageIndex API 管理，KGMS 本地保存 `pageindex_doc_id`、tree/OCR 缓存和检索命中元数据。
 - 上传时选择索引目标：`lightrag`、`pageindex` 或 `both`，默认 `both`。
 - 检索模式：`native`、`lightrag`、`pageindex`、`hybrid`、`smart`。
 - 两个前端页面：文档管理页和检索页。
@@ -56,7 +56,7 @@ KGMS 作为独立后端和前端应用运行。LightRAG 作为独立容器或独
 - KGMS Frontend：文档管理、检索模式选择、证据展示、PageIndex 片段展示、小图谱展示。
 - KGMS Backend：上传编排、KGMS 元数据、PageIndex 索引、状态聚合、检索路由、hybrid 融合、轻量领域规范化。
 - LightRAG Server：文件解析、多模态 sidecar、VLM 分析、实体/关系抽取、图存储、native 向量检索、图检索。
-- 存储和外部服务：Postgres 存 KGMS 元数据，KGMS 文件卷存原始文件和 PageIndex 工件；LightRAG 使用它自己配置的存储后端；MinerU、Docling、VLM 和模型服务按配置接入。
+- 存储和外部服务：Postgres 存 KGMS 元数据，KGMS 文件卷存原始文件和 PageIndex tree/OCR 缓存；LightRAG 使用它自己配置的存储后端；PageIndex API、MinerU、Docling、VLM 和模型服务按配置接入。
 
 这个方案避免 fork LightRAG，后续 LightRAG 升级成本较低。
 
@@ -106,15 +106,16 @@ PageIndex 数据：
 - 完整 PageIndex 工件放在：
   `/data/kgms/pageindex/{document_id}/`
 - 建议包含：
-  - `workspace/`
   - `tree.json`
-  - `blocks.jsonl`
-  - 配置和 model hash 元数据
+  - `ocr_pages.jsonl`
+  - `retrieval_runs.jsonl`
+  - PageIndex `doc_id`、同步时间和 API 响应摘要
 - Postgres 保存可查询、可展示的结构：
   - `pageindex_jobs`
-  - `pageindex_indexes`
-  - `pageindex_nodes`
-  - `document_blocks`
+  - `pageindex_documents`
+  - `pageindex_tree_nodes`
+  - `pageindex_ocr_pages`
+  - `pageindex_hits`
 
 结论：Postgres 是 KGMS 的元数据和展示结构数据库，不是大文件仓库。
 
@@ -178,20 +179,29 @@ LightRAG 重建策略：
 职责：
 
 - 创建和跟踪 PageIndex job。
-- 从 KGMS 文档文本块或可复用解析内容构建 PageIndex index。
-- 把 PageIndex 工件写入文件卷。
-- 把前端展示和查询需要的结构同步到 Postgres。
-- 执行 PageIndex 检索并返回 node/block references。
+- 将 KGMS 保存的原始 PDF 上传到 PageIndex API，获得 `pageindex_doc_id`。
+- 轮询 PageIndex 文档状态，拉取 tree 和 OCR 结果。
+- 把 PageIndex tree/OCR 响应写入文件卷，并把前端展示和候选文档选择需要的结构同步到 Postgres。
+- 执行 PageIndex Retrieval API，返回 node references、页码、标题路径和相关原文。
+- 在 pageindex-only 模式下可选调用 PageIndex Chat API 生成回答；hybrid 模式优先使用结构化 hits 参与 KGMS 融合。
 
-PageIndex 构建时要尽量保留：
+PageIndex 同步时要尽量保留：
 
 - document id
+- PageIndex `doc_id`
 - 文件路径
 - 页码
 - heading path
-- block id
-- 文本、表格文本、图片说明
+- `node_id`
+- 文本、表格文本、图片说明或 OCR markdown
 - 来源模态
+
+PageIndex 多文档检索策略：
+
+1. KGMS 先使用 filters、文件名、文档元数据、tree title/path 或 OCR markdown 做候选文档选择。
+2. KGMS 选择 3 到 5 个候选 `pageindex_doc_id`。
+3. KGMS 调用 PageIndex Retrieval API 获取 `retrieved_nodes`。
+4. KGMS 将命中节点写入 `pageindex_hits`，并统一返回给前端。
 
 ### Retrieval Orchestrator
 
@@ -237,45 +247,63 @@ Hybrid 失败策略：
 
 ### Military Domain Adapter
 
-第一版只做轻量适配。
+第一版做轻量但可验证的领域适配，重点解决图谱类型干净、装备属性可检索、国家/区域/地点边界清晰，以及事件/动作抽取稳定。当前部署使用新版 LightRAG，通过 `ENTITY_TYPE_PROMPT_FILE=military.yml` 加载实体类型和抽取示例。
 
 LightRAG prompt profile：
 
-- 挂载 `./data/prompts:/app/data/prompts`
+- 挂载 `./prompts:/app/data/prompts`
 - 设置 `PROMPT_DIR=/app/data/prompts`
-- 添加 `./data/prompts/entity_type/military.yml`
+- 添加 `./prompts/entity_type/military.yml`
 - 设置 `ENTITY_TYPE_PROMPT_FILE=military.yml`
+- 实体类型使用英文 `snake_case` 内部标识，前端显示中文名称。
 
 初始节点类型：
 
-- `forceunit`
+- `country`
+- `force_unit`
 - `organization`
 - `person`
-- `platform`
-- `weaponsystem`
-- `sensor`
+- `equipment`
 - `facility`
 - `location`
-- `document`
+- `region`
+- `event`
+- `action`
 - `capability`
-- `militaryevent`
-- `militaryaction`
-- `timepoint`
-- `quantity`
-- `coordinate`
+- `indicator`
+- `resource`
+- `time`
+- `plan`
+- `document`
+- `other`
 
 初始动作处理：
 
 - 事件和动作都作为节点。
 - 动作节点必须至少有一个锚点：主体、目标、地点、时间或所属事件。
 - 避免为低价值动词创建动作节点，例如“显示”“指出”“包括”“提到”等。
+- 装备、型号、舰艇、导弹、雷达、声纳等优先归为 `equipment`，避免进入 LightRAG 默认的 `artifact`。
+- 伊朗、俄国、俄罗斯、美国、中国等国家优先归为 `country`；中东、印太、南海等大范围区域归为 `region`；霍尔木兹海峡、某海域、某空域归为 `location`。
+- 载弹量、最大航速、实用升限、航程、作战半径、射程、排水量等属性值归为 `indicator`，通过关系连接到装备。
+
+关系处理：
+
+- 当前 LightRAG 不提供强 `relation_type` schema。
+- 抽取 prompt 约束 `relationship_keywords` 使用军事短语，例如：`服役于`、`部署于`、`发生于`、`执行主体`、`动作对象`、`搭载武器`、`能力增强`、`最大航速`、`载弹量`、`属于事件`。
+- KGMS 后续从 `keywords` 和 `description` 派生 `normalized_relation_type`，用于图展示、过滤和结构化查询。
 
 KGMS 侧最小规范化：
 
-- 为图展示提供类型到颜色/图标的映射。
+- 为图展示提供类型到中文显示名、颜色和图标的映射。具体定义见 `docs/domain/military-entity-types.md`。
 - 展示时过滤停用动作。
 - 做关系关键词到展示标签的映射。
 - 第一版不做自动实体合并。
+
+问答 prompt：
+
+- 添加 `./prompts/query/military_qa.md`。
+- KGMS 调用 LightRAG `/query` 时读取该文件并作为 `user_prompt` 传入。
+- 直接使用 LightRAG WebUI 时，可把该文件内容粘贴到 User Prompt 设置中。
 
 ## 小图谱展示
 
@@ -307,7 +335,9 @@ KGMS 首先使用 LightRAG graph/query API，不直接查询 Neo4j。
    - KGMS 轮询 LightRAG 状态，并在文档列表中展示。
 4. 如果选择 PageIndex：
    - KGMS 创建 `pageindex_jobs` 记录。
-   - PageIndex worker 提取或复用文本块，构建 PageIndex tree/index，写入工件，并同步展示结构到 Postgres。
+   - PageIndex worker 将原始 PDF 上传到 PageIndex API，记录 `pageindex_doc_id`。
+   - KGMS 轮询 PageIndex 状态，拉取 tree/OCR，写入文件卷并同步展示结构到 Postgres。
+   - Office 文档第一版由 KGMS 转 PDF 后上传 PageIndex；转换失败时 PageIndex 任务失败但 LightRAG 任务可继续。
 5. 文档页分别显示 LightRAG 和 PageIndex 的独立状态。
 
 ## 检索流程
@@ -393,10 +423,10 @@ LightRAG client 测试：
 
 PageIndex service 测试：
 
-- 使用小型文本 fixture 构建 index
-- 持久化 artifacts
-- 同步 nodes 和 blocks
-- 查询并返回 block references
+- mock PageIndex 上传和状态轮询
+- 同步 tree nodes 和 OCR pages
+- 候选文档选择
+- 查询并返回 node references
 
 API 集成测试：
 
